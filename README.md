@@ -206,6 +206,8 @@ All training hyperparameters are in [`train/config.yaml`](train/config.yaml) (mo
 **Logging:**
 We provide a comprehensive logging to monitor training. See [logs.md](assets/doc/logs.md) for more details.
 
+**Training/Reward Details:** For a concise overview of datasets, Flow-GRPO setup, reward design (including open-ended answer evaluation), and SQL task training strategies, see [training_overview.md](assets/doc/training_overview.md).
+
 
 
 ## 🎯 AgentFlow Benchmark 
