@@ -274,19 +274,29 @@ prompt = """
    - 理解问题意图
    - 识别中间步骤 vs 最终答案
 
-### 4.5 奖励函数局限性
+### 4.5 奖励函数局限性与备选方案
 
-文档中提到的考虑因素：
+**当前限制**：
+- 依赖 OpenAI API (GPT-4o) 作为评判器
+- 需要额外的 API 调用成本
+- 可能受到 API 可用性和延迟影响
 
-```yaml
-# 配置中的注释
-# Not that necessary. (OpenAI API)
-# 暗示：如果没有 OpenAI API，评估可能受限
-```
+**备选方案**：
 
-备选方案：
-- 使用其他 LLM（如 Qwen、Claude）作为评判器
-- 对于确定性任务（如数学），可以使用符号计算验证
+1. **使用其他 LLM 作为评判器**
+   - Qwen-2.5-72B: 开源强大模型，可自托管
+   - Claude-3.5: 高质量商业模型
+   - Gemini: Google 提供的多模态模型
+
+2. **确定性任务的精确验证**
+   - 数学任务：使用 SymPy 符号计算验证
+   - 代码任务：执行测试用例验证
+   - SQL 任务：比较查询结果集
+
+3. **混合评估策略**
+   - 简单任务：字符串匹配或规则验证
+   - 复杂任务：LLM 评判器
+   - 降低成本同时保持质量
 
 ---
 
@@ -466,6 +476,14 @@ SQL 任务可以使用**多级奖励函数**：
 def sql_reward_execution(pred_sql, gold_sql, database):
     """
     通过执行结果判断正确性
+    
+    Args:
+        pred_sql (str): 模型预测的 SQL 查询语句
+        gold_sql (str): 标准答案 SQL 查询语句
+        database (str): 数据库标识符或连接字符串
+    
+    Returns:
+        float: 1.0 表示正确，0.0 表示错误
     """
     pred_result = execute_sql(pred_sql, database)
     gold_result = execute_sql(gold_sql, database)
