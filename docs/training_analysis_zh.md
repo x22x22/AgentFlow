@@ -157,7 +157,7 @@ actor_rollout_ref.actor.entropy_coeff: 0.0
 # 训练流程伪代码
 for epoch in range(total_epochs):
     for batch in train_data:
-        # 1. Rollout 阶段：生成多个轨迹
+        # 1. Rollout 阶段：生成多个轨迹并实时评估
         for task in batch:
             for rollout_id in range(n=8):  # 每个任务采样 8 个轨迹
                 # 使用当前策略生成完整的解决方案
@@ -166,16 +166,25 @@ for epoch in range(total_epochs):
                 # 提取答案
                 answer = extract_answer(result)
                 
-                # 2. 评估阶段：计算奖励
-                reward = eval(task.question, task.groundtruth, answer)
+                # 2. 立即使用 LLM-as-Judge (GPT-4o) 计算奖励
+                # 注意：这是在训练过程中实时调用的！
+                reward = await eval(task.question, task.groundtruth, answer)
+                # eval 内部调用 compute_score，使用 GPT-4o 判断正确性
+                # 返回 1.0（正确）或 0.0（错误）
                 
-                # 保存 rollout 数据
+                # 保存 rollout 数据（包含奖励值）
                 save_rollout(task, answer, reward, result)
         
         # 3. 训练阶段：使用 GRPO 更新策略
-        # 基于收集的 rollout 数据和奖励
+        # GRPO 算法基于收集的 rollout 数据和奖励值更新 Planner
+        # 通过对比组内 8 个轨迹的奖励，学习更优的决策策略
         update_policy_with_grpo(rollout_data)
 ```
+
+**关键特点**：
+- **在线评估**：每个 rollout 立即用 LLM-as-Judge 评估，不是离线处理
+- **实时奖励**：奖励信号在生成答案后立即获得并用于训练
+- **组级优化**：GRPO 同时考虑每个任务的 8 个轨迹，通过相对比较学习
 
 ### 3.5 关键配置参数
 
@@ -211,20 +220,63 @@ GRPO 相比传统 PPO 的优势：
 
 AgentFlow 使用 **GPT-4o 作为评判器**来评估答案的正确性。这是应对**开放式答案**评估挑战的关键创新。
 
-### 4.2 实现细节
+### 4.2 LLM-as-Judge 的使用时机
 
-基于 `train/utils.py` 的实现：
+**重要说明**：LLM-as-Judge 是在 **GRPO 训练过程中**实时使用的，而不是训练完成后的评估。
+
+具体执行流程：
+
+1. **Rollout 阶段（训练中）**：
+   - 当前策略生成答案 → LLM-as-Judge 立即评估 → 计算奖励值
+   - 每个训练样本生成 8 个轨迹，每个轨迹都要用 LLM-as-Judge 评估
+   - 奖励值被保存在 rollout 数据中
+
+2. **策略更新阶段（训练中）**：
+   - GRPO 算法使用收集的奖励值更新 Planner 策略
+   - 通过对比组内轨迹的奖励，学习哪些决策更优
+
+3. **验证阶段（训练后）**：
+   - 也使用 LLM-as-Judge 评估验证集性能
+   - 用于监控训练进度和模型质量
+
+### 4.3 实现细节
+
+基于 `train/rollout.py` 的实现：
 
 ```python
+# 在 training_rollout_async 中调用
+async def _solve_and_evaluate(self, rollout, task, step_n, val=False):
+    # 1. 生成答案
+    result = rollout.solve(question=task["question"])
+    answer = extract_answer(result)
+    
+    # 2. 立即使用 LLM-as-Judge 评估（训练过程中）
+    reward_value = await eval(task["question"], task["result"], answer, val)
+    
+    # 3. 保存 rollout 数据（包含奖励）供 GRPO 使用
+    rollout_data = {
+        "answer_extracted": answer,
+        "reward": reward_value,  # 这个奖励会被 GRPO 用于策略更新
+        ...
+    }
+    save_rollout(rollout_data)
+
+# eval 函数定义（使用 @reward 装饰器跟踪）
 @reward
 async def eval(question: str, groundtruth: any, answer_extracted: any, 
                val: bool = False) -> float:
     """
-    使用 LLM 判断提取的答案是否正确
+    使用 LLM-as-Judge (GPT-4o) 判断提取的答案是否正确
+    这个函数在训练的 Rollout 阶段被调用
     """
     is_correct = compute_score(question, groundtruth, answer_extracted)
     return 1.0 if is_correct else 0.0  # 二元奖励：正确为 1.0，错误为 0.0
 ```
+
+**关键点**：
+- `@reward` 装饰器用于跟踪和记录奖励值
+- 每次 rollout 都会调用 GPT-4o 进行实时评估
+- 这是**在线强化学习**的关键部分，奖励信号直接用于训练
 
 ### 4.3 评分标准
 
@@ -617,10 +669,11 @@ Step 6: [Generator] 输出最终答案
    - GRPO 适合稀疏奖励的长期规划任务
    - 组级优化提高训练稳定性
 
-2. **LLM-as-Judge 奖励函数**
-   - 灵活处理开放式答案
-   - 智能的语义等价判断
-   - 适应多种答案格式
+2. **LLM-as-Judge 奖励函数（训练中实时使用）**
+   - **在线评估**：训练过程中每个 rollout 立即用 GPT-4o 评估
+   - 灵活处理开放式答案，智能的语义等价判断
+   - 适应多种答案格式（数学、文本、选择题）
+   - 直接为 GRPO 提供奖励信号，驱动策略优化
 
 3. **多任务训练**
    - 混合搜索和数学任务
