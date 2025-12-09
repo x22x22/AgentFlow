@@ -104,6 +104,7 @@ Explore more in our [paper](https://arxiv.org/abs/2510.05592) or [project page](
   - [Flow-GRPO Training](#flow-grpo-training)
 - [🎯 AgentFlow Benchmark](#-agentflow-benchmark)
 - [🧩 Use Your Own Model in AgentFlow](#-use-your-own-model-in-agentflow)
+- [📚 Training Methodology Deep Dive](#-training-methodology-deep-dive)
 - [🤝 Core Contributors](#-core-contributors)
 - [🎓 Advisors](#-advisors)
 - [🙏 Acknowledgements](#-acknowledgements)
@@ -251,7 +252,16 @@ executor = Executor(
 ```
 - For detailed information on supported engines and `model_string` formats, see [`llm_engine.md`](assets/doc/llm_engine.md)
 
+## 📚 Training Methodology Deep Dive
 
+For a comprehensive analysis of AgentFlow's training approach, including detailed explanations of:
+- Training dataset construction (NQ + DeepMath-103K)
+- Flow-GRPO reinforcement learning algorithm
+- Reward function design (LLM-as-Judge)
+- Evaluation of open-ended answers
+- Training strategies for SQL-type tasks
+
+Please refer to our detailed documentation: [Training Analysis (中文)](docs/training_analysis_zh.md)
 
 ## 🤝 Core Contributors
 
